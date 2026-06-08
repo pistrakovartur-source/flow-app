@@ -1225,99 +1225,185 @@ async function tgSend(token, chatId, text) {
   }
 }
 
-// ── Умный парсинг входящих сообщений ────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// УМНЫЙ ПАРСЕР — определяет категорию по любому тексту
+// Без \b для кириллицы (в JS кириллица = \W, word boundary не работает)
+// ══════════════════════════════════════════════════════════════════════════════
 
 function _tagEmoji(tag) {
-  const map = { 'Учёба':'📚', 'Работа':'💼', 'Здоровье':'💪', 'Финансы':'💰', 'Личное':'🏠', 'Проект':'🎯' }
+  const map = { 'Учёба':'📚','Работа':'💼','Здоровье':'💪','Финансы':'💰','Личное':'🏠','Проект':'🎯' }
   return map[tag] || '📌'
 }
 
-function _detectCategory(lower) {
-  if (/еда|кафе|ресторан|кофе|обед|ужин|завтрак|продукты|пицца|доставк|суши|фастфуд/.test(lower)) return 'Еда'
-  if (/такси|метро|автобус|транспорт|бензин|парковк|uber|каршер|электричк/.test(lower)) return 'Транспорт'
-  if (/кино|игры|развлечен|подписк|netflix|spotify|стриминг|концерт|театр/.test(lower)) return 'Развлечения'
-  if (/врач|аптек|здоровь|лекарств|анализ|клиник|стоматол/.test(lower)) return 'Здоровье'
-  if (/одежд|обувь|шопинг/.test(lower)) return 'Одежда'
-  if (/зарплат|фриланс|доход|заработ|гонорар|выплат/.test(lower)) return 'Доходы'
-  if (/связь|интернет|мобильн/.test(lower)) return 'Связь'
-  if (/аренд|квартир|комуналк|жкх/.test(lower)) return 'Жильё'
+function _budgetCategory(lower) {
+  if (/еда|кафе|ресторан|кофе|обед|ужин|завтрак|продукт|пицца|доставк|суши|фастфуд|хлеб|молок|пельмен|шаурм|бургер|роллы/.test(lower)) return 'Еда'
+  if (/такси|метро|автобус|транспорт|бензин|парковк|uber|каршер|электричк|самокат|проезд|маршрутк/.test(lower)) return 'Транспорт'
+  if (/кино|игры|развлечен|подписк|netflix|spotify|стриминг|концерт|театр|кальян|боулинг/.test(lower)) return 'Развлечения'
+  if (/врач|аптек|здоровь|лекарств|анализ|клиник|стоматол|больниц|таблетк|процедур/.test(lower)) return 'Здоровье'
+  if (/одежд|обувь|шопинг|штаны|куртка|пальто|футболк|носк|джинс/.test(lower)) return 'Одежда'
+  if (/зарплат|фриланс|доход|заработ|гонорар|выплат|аванс|премия|перевод/.test(lower)) return 'Доходы'
+  if (/связь|интернет|мобильн|телефон|оператор/.test(lower)) return 'Связь'
+  if (/аренд|квартир|комуналк|жкх|электричеств/.test(lower)) return 'Жильё'
+  if (/кредит|ипотек|долг|займ/.test(lower)) return 'Кредиты'
+  if (/курс|книг|образован|обучени/.test(lower)) return 'Образование'
   return 'Прочее'
 }
 
-function _detectTaskTag(lower) {
-  if (/изучи|выучи|прочитать|разобраться|туториал|лекц|книга|учёба|учиться|пройти курс/.test(lower)) return 'Учёба'
-  if (/работ|проект|написать|отправить|подготовить|отчёт|презентаци|митинг|созвон/.test(lower)) return 'Работа'
-  if (/зал|тренировк|врач|таблетк|здоровь|диета|бегать|спорт|упражнен|пробежк/.test(lower)) return 'Здоровье'
-  if (/купить(?! курс| книг)|оплатить|счёт|финанс|банк/.test(lower)) return 'Финансы'
+function _taskTag(lower) {
+  if (/изучи|выучи|прочитать|разобраться|туториал|лекц|учёба|учиться|пройти курс|книга по/.test(lower)) return 'Учёба'
+  if (/работ|проект|написать|отправить|подготовить|отчёт|презентаци|митинг|созвон|деплой|код/.test(lower)) return 'Работа'
+  if (/зал|тренировк|врач|таблетк|здоровь|диета|бегать|спорт|упражнен|пробежк|питани|калори/.test(lower)) return 'Здоровье'
+  if (/купить(?! курс| книг| урок)|оплатить|счёт|финанс|банк/.test(lower)) return 'Финансы'
   return 'Личное'
 }
 
-function _parseRuDate(text) {
+function _pad2(n) { return String(n).padStart(2,'0') }
+
+// ── Парсинг даты (все форматы) ───────────────────────────────────────────────
+
+function _parseDate(text) {
   const lower = text.toLowerCase()
   const now   = new Date()
-  const pad   = n => String(n).padStart(2, '0')
-  const fmt   = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
-  if (/\bсегодня\b/.test(lower)) return fmt(now)
-  const tom = new Date(now); tom.setDate(tom.getDate()+1)
-  if (/\bзавтра\b/.test(lower)) return fmt(tom)
-  const dtom = new Date(now); dtom.setDate(dtom.getDate()+2)
-  if (/\bпослезавтра\b/.test(lower)) return fmt(dtom)
-  const dows = [['воскресен',0],['понедельник',1],['вторник',2],['среду',3],['среда',3],['четверг',4],['пятниц',5],['суббот',6]]
-  for (const [name, dow] of dows) {
+  const fmt   = d => `${d.getFullYear()}-${_pad2(d.getMonth()+1)}-${_pad2(d.getDate())}`
+  const shift = days => { const d=new Date(now); d.setDate(d.getDate()+days); return d }
+
+  if (/сегодня/.test(lower))     return fmt(now)
+  if (/послезавтра/.test(lower)) return fmt(shift(2))
+  if (/завтра/.test(lower))      return fmt(shift(1))
+
+  let m
+  m = lower.match(/через\s+(\d+)\s+дн[еёяий]/)
+  if (m) return fmt(shift(+m[1]))
+  m = lower.match(/через\s+(\d+)\s+недел[иью]/)
+  if (m) return fmt(shift(+m[1]*7))
+  m = lower.match(/через\s+(\d+)\s+месяц[ае]?/)
+  if (m) { const d=new Date(now); d.setMonth(d.getMonth()+parseInt(m[1])); return fmt(d) }
+  if (/через\s+неделю/.test(lower))  return fmt(shift(7))
+  if (/через\s+месяц/.test(lower))   { const d=new Date(now); d.setMonth(d.getMonth()+1); return fmt(d) }
+  if (/следующ[уюий]+\s+недел|на\s+следующей\s+неделе/.test(lower)) return fmt(shift(7))
+
+  const isNext = /следующ[уюий]/.test(lower)
+  const dowMap = [['воскресень',0],['понедельник',1],['вторник',2],['среду',3],['среда',3],['четверг',4],['пятниц',5],['суббот',6]]
+  for (const [name,dow] of dowMap) {
     if (lower.includes(name)) {
-      const d = new Date(now); d.setDate(d.getDate() + ((dow - d.getDay() + 7) % 7 || 7)); return fmt(d)
+      let diff = (dow - now.getDay() + 7) % 7 || 7
+      if (isNext) diff += 7
+      return fmt(shift(diff))
     }
   }
+
+  // числовой формат: 04.07 | 4.07.25 | 04/07
+  const numDate = text.match(/\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b/)
+  if (numDate) {
+    const dy=parseInt(numDate[1]), mo=parseInt(numDate[2])-1
+    let yr = numDate[3] ? parseInt(numDate[3]) : now.getFullYear()
+    if (yr<100) yr+=2000
+    if (mo>=0&&mo<=11&&dy>=1&&dy<=31) {
+      const d=new Date(yr,mo,dy)
+      if (d<now&&!numDate[3]) d.setFullYear(d.getFullYear()+1)
+      return fmt(d)
+    }
+  }
+
+  // ДД месяц [YYYY]: "4 июля", "4-го июля"
   const months = [['январ',0],['феврал',1],['март',2],['апрел',3],['мая',4],['май',4],['июн',5],['июл',6],['август',7],['сентябр',8],['октябр',9],['ноябр',10],['декабр',11]]
-  const dm = lower.match(/(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?/)
-  if (dm) {
-    const me = months.find(([k]) => dm[2].startsWith(k))
+  const ruDate = lower.match(/(\d{1,2})(?:-?го)?\s+([а-яё]+)(?:\s+(\d{4}))?/)
+  if (ruDate) {
+    const me = months.find(([k]) => ruDate[2].startsWith(k))
     if (me) {
-      const year = dm[3] ? parseInt(dm[3]) : now.getFullYear()
-      const d = new Date(year, me[1], parseInt(dm[1]))
-      if (d < now && !dm[3]) d.setFullYear(d.getFullYear()+1)
+      const yr = ruDate[3] ? parseInt(ruDate[3]) : now.getFullYear()
+      const d  = new Date(yr, me[1], parseInt(ruDate[1]))
+      if (d<now&&!ruDate[3]) d.setFullYear(d.getFullYear()+1)
       return fmt(d)
     }
   }
   return null
 }
 
-function _parseRuTime(text) {
-  const m = text.match(/\b(\d{1,2}):(\d{2})\b/)
-  if (m) return `${m[1].padStart(2,'0')}:${m[2]}`
-  const m2 = text.match(/в\s+(\d{1,2})\s*(?:утра|часов?|дня|вечера|ночи)/i)
+// ── Парсинг времени ──────────────────────────────────────────────────────────
+
+function _parseTime(text) {
+  const lower = text.toLowerCase()
+  if (/полдень/.test(lower))  return '12:00'
+  if (/полночь/.test(lower))  return '00:00'
+
+  const m1 = text.match(/\b(\d{1,2}):(\d{2})\b/)
+  if (m1) { const h=+m1[1],mn=+m1[2]; if(h<=23&&mn<=59) return `${_pad2(h)}:${_pad2(mn)}` }
+
+  // "в 9 утра", "в 15 часов", "в 3 дня", "в 7 вечера"
+  const m2 = lower.match(/в\s+(\d{1,2})(?:\s+(?:час[ао]в?|ч))?\s*(утра|дня|вечера|ночи)?(?=\s|$)/)
   if (m2) {
-    let h = parseInt(m2[1])
-    if (/вечера|ночи/.test(text) && h < 12) h += 12
-    else if (/дня/.test(text) && h < 12 && h >= 1) h += 12
-    return `${String(h).padStart(2,'0')}:00`
+    let h=parseInt(m2[1]); const p=m2[2]||''
+    if (p==='вечера'&&h<12)          h+=12
+    else if (p==='ночи'&&h>=6&&h<12) h+=12
+    else if (p==='дня'&&h<12&&h>=1)  h+=12
+    if (h<=23) return `${_pad2(h)}:00`
   }
+
+  // слова-подсказки
+  if (/утром/.test(lower)   && !/(?:вчера|сегодня)\s+утром/.test(lower))   return '09:00'
+  if (/днём|днем/.test(lower))                                               return '13:00'
+  if (/вечером/.test(lower) && !/(?:вчера|сегодня)\s+вечером/.test(lower)) return '19:00'
+  if (/ночью/.test(lower))                                                   return '22:00'
   return null
 }
 
-function _isCalendar(t, lower) {
-  const hasTime     = /\b\d{1,2}:\d{2}\b/.test(t) || /в\s+\d{1,2}\s*(?:утра|часов?|дня|вечера|ночи)/i.test(t)
-  const hasDate     = /\b(завтра|послезавтра|сегодня|понедельник|вторник|среду?|четверг|пятниц[уа]|суббот[уа]|воскресенье|\d{1,2}\s+[а-яё]{3,})/i.test(lower)
-  const hasEventWrd = /\b(запись|встреча|встречу|встретиться|созвон|звонок|митинг|собрание|мероприятие|событие|визит|приём|прием|конференция|вечеринк|концерт|спектакль|экзамен|защита|дедлайн|поездка|рейс|вылет|прилёт|прилет|день\s*рожден)\b/i.test(lower)
-  return hasEventWrd && (hasDate || hasTime) || (hasTime && hasDate)
-}
+// ── Определители категории ────────────────────────────────────────────────────
 
-function _isDiary(t, lower) {
-  if (/^(?:сегодня|вчера)\s+я\b/i.test(t)) return true
-  if (/^сегодня\s+(?:был[аи]?|ходил[а]?|гулял[а]?|посетил[а]?|поел[а]?|провел[а]?)/i.test(t)) return true
-  if (/\bя\s+(?:погулял|погуляла|сходил|сходила|посетил|посетила|побывал|побывала|провел|провела|встретил|встретила|поговорил|поговорила|поел|поела|выспался|выспалась|отдохнул|отдохнула|поработал|поработала|почитал|почитала|посмотрел|посмотрела|написал|написала)\b/i.test(lower)) return true
-  if (/\b(?:настроение сегодня|чувствую себя|был[а]? продуктивн|хороший день|плохой день|устал[а]?$|неплохой день|день прошёл|день прошел)\b/i.test(lower)) return true
+function _isBudget(t, lower) {
+  // число + ₽/руб
+  if (/\d+\s*₽/.test(t)) return true
+  if (/\d+\s*руб/.test(lower)) return true
+  if (/руб\w*\s*\d+/.test(lower)) return true  // "руб 150"
+  // "потратил 500", "стоит 300", "заплатил 200"
+  if (/(?:потратил[а]?|стоит|стоил[а]?|обошлось|заплатил[а]?|оплатил[а]?)\s+\d/.test(lower)) return true
   return false
 }
 
-function _cleanCalendarTitle(t) {
-  return t
-    .replace(/\b\d{1,2}:\d{2}\b/g, '')
-    .replace(/\b\d{1,2}\s+[а-яёА-ЯЁ]{3,}(?:\s+\d{4})?\b/g, '')
-    .replace(/\b(?:сегодня|завтра|послезавтра)\b/gi, '')
-    .replace(/\bв\s+(?:понедельник|вторник|среду|четверг|пятницу|субботу|воскресенье)\b/gi, '')
-    .replace(/\s+/g, ' ').trim() || t.trim()
+function _isCalendar(t, lower) {
+  const hasTime = _parseTime(t) !== null
+  const hasDate = _parseDate(t) !== null
+  // ключевые слова событий (без \b — кириллица \W)
+  const eventWords = /запись|записался|записалась|встреча|встречу|встретиться|созвон|созвониться|звонок|митинг|собрание|мероприятие|событие|визит|приём|прием|конференция|вечеринк|концерт|спектакль|экзамен|зачёт|зачет|защита|дедлайн|поездка|рейс|вылет|прилёт|прилет|день рожден|праздник|юбилей|свидание|интервью|собеседование|напомни/i
+  const hasEvt = eventWords.test(lower)
+  if (hasEvt && (hasDate || hasTime)) return true
+  if (hasTime && hasDate)             return true
+  return false
 }
+
+function _isDiary(t, lower) {
+  // "сегодня я..." или "вчера я..."
+  if (/^(?:сегодня|вчера)\s+я\s/i.test(t)) return true
+  if (/^(?:сегодня|вчера)\s+я$/i.test(t))  return true
+  // "сегодня был/ходил/гулял..."
+  if (/^сегодня\s+(?:был[аи]?|ходил[а]?|гулял[а]?|посетил[а]?|поел[а]?|провел[а]?|занимался|занималась)/i.test(t)) return true
+  // личные глаголы прошедшего времени: " я погулял", "я сходил" и тд
+  if (/(?:^|\s)я\s+(?:погулял|погуляла|сходил|сходила|посетил|посетила|побывал|побывала|провел|провела|встретил|встретила|поговорил|поговорила|поел|поела|выспался|выспалась|отдохнул|отдохнула|поработал|поработала|почитал|почитала|посмотрел|посмотрела|написал|написала|сделал|сделала|поиграл|поиграла|потренировался|потренировалась|пробежал|пробежала|поплавал|поплавала|съездил|съездила|побегал|побегала)/i.test(lower)) return true
+  // эмоциональные / рефлексивные фразы
+  if (/настроение сегодня|чувствую себя|чувствовал|был[а]?\s+продуктивн|хороший день|плохой день|сложный день|тяжёлый день|тяжелый день|неплохой день|день прошёл|день прошел|было здорово|было классно|было грустно|было скучно|скучал|грустил|радовался|радовалась|нервничал/.test(lower)) return true
+  return false
+}
+
+function _isNote(t) {
+  return /^(?:идея|заметка|мысль|запиши|записать|нужно запомнить|важно|заметь)[:\s]/i.test(t)
+}
+
+// ── Очистка заголовка события ────────────────────────────────────────────────
+
+function _calTitle(t) {
+  return t
+    .replace(/\b\d{1,2}:\d{2}\b/g,'')
+    .replace(/в\s+\d{1,2}\s*(?:час[ао]в?|ч)?\s*(?:утра|дня|вечера|ночи)?/gi,'')
+    .replace(/полдень|полночь/gi,'')
+    .replace(/\d{1,2}(?:-?го)?\s+(?:январ[яе]?|феврал[яе]?|март[ае]?|апрел[яе]?|мая?|июн[яе]?|июл[яе]?|август[ае]?|сентябр[яе]?|октябр[яе]?|ноябр[яе]?|декабр[яе]?)(?:\s+\d{4})?/gi,'')
+    .replace(/\b\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?\b/g,'')
+    .replace(/сегодня|завтра|послезавтра|через\s+\S+(?:\s+\S+)?/gi,'')
+    .replace(/(?:в\s+)?(?:следующ[уюий]+\s+)?(?:понедельник|вторник|среду|четверг|пятницу|субботу|воскресенье)/gi,'')
+    .replace(/утром|вечером|днём|днем|ночью/gi,'')
+    .replace(/\s+/g,' ').trim() || t.trim()
+}
+
+// ── Основная функция ─────────────────────────────────────────────────────────
 
 function _smartParse(text) {
   const t     = text.trim()
@@ -1325,11 +1411,11 @@ function _smartParse(text) {
   const today = _todayKey()
   const now   = new Date()
 
-  // ── 1. Календарь: событие с датой и/или временем ──────────────────────────
+  // ── 1. Календарь ──────────────────────────────────────────────────────────
   if (_isCalendar(t, lower)) {
-    const date  = _parseRuDate(t) || today
-    const time  = _parseRuTime(t) || ''
-    const title = _cleanCalendarTitle(t)
+    const date  = _parseDate(t) || today
+    const time  = _parseTime(t) || ''
+    const title = _calTitle(t)
     return {
       type: 'calendar',
       data: { id:`tg_${Date.now()}`, title, date, time, endTime:'', color:'#5b8dee', allDay:!time, desc:'', location:'', repeat:'none', repeatEnd:'' },
@@ -1337,34 +1423,36 @@ function _smartParse(text) {
     }
   }
 
-  // ── 2. Бюджет: есть сумма + валюта ────────────────────────────────────────
-  const moneyMatch = t.match(/(\d[\d\s,.]*)\s*(?:₽|р(?:уб(?:лей|ля|\.)?)?(?:\b|$))/i)
-  if (moneyMatch) {
-    const amount   = parseFloat(moneyMatch[1].replace(/\s/g,'').replace(',','.'))
-    const isIncome = /получил|зарплат|доход|заработал|выплат|пришло|перевод/i.test(lower)
-    const note     = t.replace(moneyMatch[0],'').replace(/^\s*[-—:,]\s*/,'').trim() || t
-    const category = _detectCategory(lower)
+  // ── 2. Бюджет ─────────────────────────────────────────────────────────────
+  if (_isBudget(t, lower)) {
+    const mM = t.match(/(\d[\d\s,.]*)\s*₽/)
+            || lower.match(/(\d[\d\s,.]*)\s*руб/)
+            || lower.match(/(?:потратил[а]?|стоит|заплатил[а]?|оплатил[а]?)\s+(\d[\d\s,.]*)/)
+    const amount   = mM ? parseFloat(mM[1].replace(/\s/g,'').replace(',','.')) : 0
+    const isIncome = /получил[а]?|зарплат|доход|заработал[а]?|выплат|пришло|перевод|аванс|премия|гонорар/.test(lower)
+    const note     = t.replace(/\d[\d\s,.]*\s*(?:₽|руб[а-яё]*)/gi,'').replace(/^\s*[-—:,]\s*/,'').trim() || t
+    const category = _budgetCategory(lower)
     return {
       type: 'budget',
       data: { id:`tg_${Date.now()}`, type:isIncome?'income':'expense', amount, category, note, date:today, month:today.slice(0,7), created:now.toISOString() },
-      reply: `💰 <b>${isIncome?'Доход':'Расход'} ${amount.toLocaleString('ru')} ₽</b>\nКатегория: ${category}\nЗаметка: ${note}`,
+      reply: `💰 <b>${isIncome?'Доход':'Расход'} ${amount.toLocaleString('ru')} ₽</b>\nКатегория: ${category}${note&&note!==t?'\nЗаметка: '+note:''}`,
     }
   }
 
-  // ── 3. Дневник: личный рассказ / описание дня ─────────────────────────────
+  // ── 3. Дневник ────────────────────────────────────────────────────────────
   if (_isDiary(t, lower)) {
     return {
       type: 'diary',
       data: { id:`tg_${Date.now()}`, date:today, body:t, mood:null, created:now.toISOString(), updated:now.toISOString() },
-      reply: `📖 <b>Запись в дневник</b>\n«${t.slice(0,80)}${t.length>80?'…':''}»`,
+      reply: `📖 <b>Запись в дневник</b>\n«${t.slice(0,100)}${t.length>100?'…':''}»`,
     }
   }
 
-  // ── 4. Заметка: начинается с ключевого слова ──────────────────────────────
-  if (/^(?:идея|заметка|мысль|запиши?|записать)[:\s]/i.test(t)) {
-    const body  = t.replace(/^(?:идея|заметка|мысль|запиши?|записать)[:\s]*/i,'').trim()
+  // ── 4. Заметка ────────────────────────────────────────────────────────────
+  if (_isNote(t)) {
+    const body  = t.replace(/^(?:идея|заметка|мысль|запиши|записать|нужно запомнить|важно|заметь)[:\s]*/i,'').trim()
     const title = body.split('\n')[0].slice(0,60) || 'Без заголовка'
-    const tag   = /идея/i.test(t)?'Идея':/работ/i.test(lower)?'Работа':/учёб|учи/i.test(lower)?'Учёба':'Личное'
+    const tag   = /идея/i.test(t)?'Идея':/работ/.test(lower)?'Работа':/учёб|учи/.test(lower)?'Учёба':'Личное'
     return {
       type: 'note',
       data: { id:`tg_${Date.now()}`, title, body, color:'#1e2433', tag, pinned:false, created:now.toISOString(), updated:now.toISOString() },
@@ -1372,13 +1460,17 @@ function _smartParse(text) {
     }
   }
 
-  // ── 5. Задача: всё остальное ──────────────────────────────────────────────
-  const tag      = _detectTaskTag(lower)
-  const priority = /срочно|важно|критично|asap/i.test(lower) ? 'high' : 'medium'
-  const cleanText = t.replace(/^(?:изучить?|прочитать?|посмотреть?|сделать?|добавить?|напомнить?|купить?)\s+/i,'').replace(/\s+(?:срочно|важно)$/i,'').trim() || t
+  // ── 5. Задача ─────────────────────────────────────────────────────────────
+  const tag      = _taskTag(lower)
+  const priority = /срочно|важно|критично|asap|горит|немедленно/.test(lower) ? 'high' : 'medium'
+  const taskDate = _parseDate(t) || today
+  const cleanText = t
+    .replace(/^(?:нужно|надо|необходимо|не забыть|хочу|планирую)\s+/i,'')
+    .replace(/^(?:изучить?|прочитать?|посмотреть?|сделать?|добавить?|напомнить?|купить?|написать?|отправить?|позвонить?)\s+/i,'')
+    .replace(/\s+(?:срочно|важно|сегодня)$/i,'').trim() || t
   return {
     type: 'task',
-    data: { id:`tg_${Date.now()}`, text:cleanText, tag, priority, date:today, done:false, created:now.toISOString(), subtasks:[] },
+    data: { id:`tg_${Date.now()}`, text:cleanText, tag, priority, date:taskDate, done:false, created:now.toISOString(), subtasks:[] },
     reply: `${_tagEmoji(tag)} <b>Задача [${tag}]</b> добавлена:\n«${cleanText}»`,
   }
 }
