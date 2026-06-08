@@ -1,0 +1,10 @@
+FROM qwen2.5:7b
+
+# Только параметры производительности — системный промпт передаётся через API
+PARAMETER temperature 0.3
+PARAMETER num_ctx 1536
+PARAMETER num_predict 120
+PARAMETER repeat_penalty 1.2
+PARAMETER top_p 0.85
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|endoftext|>"

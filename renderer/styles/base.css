@@ -1,0 +1,68 @@
+/* ============ FLOW · design system — base ============ */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --acc:#7c5cff;
+  --fscale:1;
+  --c-cool:#46a6ff;
+  --c-warm:#ff7a4d;
+  --c-calm:#3ddc84;
+
+  --bg:#08080d;
+  --t:#eef0f7;
+  --t-dim:#9aa0b6;
+  --t-mute:#6a7088;
+  --line:rgba(255,255,255,.07);
+  --line-2:rgba(255,255,255,.12);
+  --surf:rgba(255,255,255,.034);
+  --surf-2:rgba(255,255,255,.06);
+  --surf-hi:rgba(255,255,255,.09);
+  --ring-track:rgba(255,255,255,.08);
+  --cell-0:rgba(255,255,255,.05);
+
+  --r:18px;
+  --r-sm:11px;
+  --gap:16px;
+  --pad:20px;
+  --rail-w:236px;
+
+  --acc-soft:color-mix(in oklch, var(--acc) 16%, transparent);
+  --acc-line:color-mix(in oklch, var(--acc) 38%, transparent);
+  --acc-text:color-mix(in oklch, var(--acc) 72%, white);
+
+  font-size:16px;
+}
+:root[data-density="compact"]{ --gap:12px; --pad:15px; --r:15px; }
+:root[data-density="comfy"]{ --gap:22px; --pad:26px; --r:22px; }
+
+:root[data-phase="morning"]{ --bg:#0c0a10; --au1:#ff9e64; --au2:#7c5cff; --au3:#ff6f91; }
+:root[data-phase="day"]    { --bg:#080a12; --au1:#46a6ff; --au2:#7c5cff; --au3:#3ddc84; }
+:root[data-phase="evening"]{ --bg:#0a0810; --au1:#7c5cff; --au2:#ff6b3d; --au3:#b15cff; }
+:root[data-phase="night"]  { --bg:#06070e; --au1:#3a4fff; --au2:#7c5cff; --au3:#1f2a6b; }
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+html,body{ height:100%; background:var(--bg); color:var(--t);
+  font-family:"Hanken Grotesk","Space Grotesk",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased; overflow:hidden; }
+.mono{ font-family:"JetBrains Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+::selection{ background:var(--acc-line); color:#fff; }
+
+/* ── keyframes ── */
+@keyframes fadeUp{ from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:none; } }
+@keyframes fadeIn{ from{ opacity:0; } to{ opacity:1; } }
+@keyframes cmdIn{ from{ opacity:0; transform:translateY(-12px) scale(.97); } to{ opacity:1; transform:none; } }
+@keyframes toastIn{ from{ opacity:0; transform:translate(-50%,14px); } to{ opacity:1; transform:translateX(-50%); } }
+@keyframes pulse{ 0%,100%{ box-shadow:0 0 0 4px var(--acc-soft),0 0 12px var(--acc); } 50%{ box-shadow:0 0 0 7px transparent,0 0 18px var(--acc); } }
+@keyframes blockIn{ from{ opacity:0; transform:translateY(-50%) scaleX(.8); } to{ opacity:1; transform:translateY(-50%) scaleX(1); } }
+@keyframes cellpop{ from{ opacity:0; transform:scale(.4); } to{ opacity:1; transform:scale(1); } }
+@keyframes eq{ 0%,100%{ height:30%; } 50%{ height:95%; } }
+@keyframes shimmer{ to{ background-position:-200% 0; } }
+@keyframes drift1{ to{ transform:translate(8vw,6vh) scale(1.12); } }
+@keyframes drift2{ to{ transform:translate(-6vw,8vh) scale(1.08); } }
+@keyframes drift3{ to{ transform:translate(10vw,-6vh) scale(1.15); } }
+@keyframes popIn{ from{ opacity:0; transform:translateX(-50%) translateY(-8px) scale(.97); } to{ opacity:1; transform:translateX(-50%) translateY(0) scale(1); } }
+.spark-line{ stroke-dasharray:1000; stroke-dashoffset:1000; animation:dash 1.4s ease forwards; }
+@keyframes dash{ to{ stroke-dashoffset:0; } }
+.spark-draw{ animation:fadeIn 1s ease both; }
+.bar{ transition:background .2s; }
+@media (prefers-reduced-motion:reduce){ *{ animation:none!important; } }
