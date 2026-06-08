@@ -1,18 +1,18 @@
 {
   "name": "flow-planner",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Flow — персональный планировщик",
   "main": "main.js",
   "scripts": {
-    "build":   "chcp 65001 >nul && node build.mjs",
-    "start":   "chcp 65001 >nul && node build.mjs && electron .",
-    "dev":     "chcp 65001 >nul && electron . --dev",
-    "dist":    "chcp 65001 >nul && node build.mjs && electron-builder --win",
+    "build": "chcp 65001 >nul && node build.mjs",
+    "start": "chcp 65001 >nul && node build.mjs && electron .",
+    "dev": "chcp 65001 >nul && electron . --dev",
+    "dist": "chcp 65001 >nul && node build.mjs && electron-builder --win",
     "release": "chcp 65001 >nul && node build.mjs && electron-builder --win --publish always"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
-    "https-proxy-agent": "^9.0.0",
+    "https-proxy-agent": "^6.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "sql.js": "^1.14.1"
@@ -47,7 +47,12 @@
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.ico"
     },
@@ -57,7 +62,9 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Flow",
-      "installerLanguages": ["ru_RU"],
+      "installerLanguages": [
+        "ru_RU"
+      ],
       "language": "1049"
     },
     "publish": {
