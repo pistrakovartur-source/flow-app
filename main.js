@@ -2069,8 +2069,16 @@ app.whenReady().then(async () => {
   tgStart()
   // Синхронизация с облачным ботом каждые 5 минут
   setInterval(syncToCloud, 5 * 60 * 1000)
-  // Первая синхронизация через 10 сек после старта (дать время загрузиться renderer)
-  setTimeout(syncToCloud, 10000)
+  // Первая синхронизация через 3 сек после старта, повтор если окно ещё грузилось
+  const trySyncOnStart = (attempt = 1) => {
+    const win2 = BrowserWindow.getAllWindows()[0]
+    if (win2 && !win2.isDestroyed() && !win2.webContents.isLoading()) {
+      syncToCloud()
+    } else if (attempt < 10) {
+      setTimeout(() => trySyncOnStart(attempt + 1), 2000)
+    }
+  }
+  setTimeout(() => trySyncOnStart(), 3000)
 
   // Проверяем обновления через 15 сек после старта, потом каждые 4 часа
   if (_autoUpdater) {
