@@ -1865,8 +1865,10 @@ async function _tgPollOnce(token, chatId) {
 }
 
 function tgStart() {
-  const { token, chatId, morningTime, eveningTime, overdueReminder, enabled } = tgLoad()
+  const { token, chatId, morningTime, eveningTime, overdueReminder, enabled, cloudUrl } = tgLoad()
   if (!token || !chatId || enabled === false) return
+  // Если настроен облачный бот — локальный polling не нужен, чтобы не было двойных ответов
+  if (cloudUrl) { console.log('[tg] cloudUrl задан — локальный polling пропущен, работает Render'); return }
 
   console.log('[tg] bot started, chat_id:', chatId)
   _tgOffset = 0
