@@ -1403,14 +1403,162 @@ function _calTitle(t) {
     .replace(/\s+/g,' ').trim() || t.trim()
 }
 
-// ── Основная функция ─────────────────────────────────────────────────────────
+// ── LLM-классификатор (Groq, бесплатный) ─────────────────────────────────────
+// Понимает свободный текст без ключевых слов. При отсутствии ключа/ошибке
+// падаем обратно на классификацию по правилам (_smartParseRules).
 
-function _smartParse(text) {
+const _GROQ_MODEL     = 'llama-3.1-8b-instant'
+const _CLASSIFY_TYPES = ['task', 'budget', 'calendar', 'diary', 'note']
+
+// Groq стоит за Cloudflare, который блокирует TLS-отпечаток Node.js (и https,
+// и встроенный fetch получают 403 Forbidden), а curl проходит без проблем —
+// поэтому запрос делаем через дочерний процесс curl.exe (без участия shell,
+// тело передаётся через stdin — инъекция исключена). При наличии VPN-прокси
+// (как и для Telegram) пробрасываем через него же.
+const { spawn: _spawn } = require('child_process')
+
+function _groqRequest(apiKey, body) {
+  return new Promise((resolve, reject) => {
+    const data    = JSON.stringify(body)
+    const proxy   = tgLoad().proxyUrl
+    const args    = ['-s', '-X', 'POST', 'https://api.groq.com/openai/v1/chat/completions',
+      '-H', 'Content-Type: application/json',
+      '-H', `Authorization: Bearer ${apiKey}`,
+      '--max-time', '20',
+      '--data-binary', '@-']
+    if (proxy) args.push('--proxy', proxy)
+    const p = _spawn('curl', args)
+    let out = '', err = ''
+    p.stdout.on('data', c => out += c)
+    p.stderr.on('data', c => err += c)
+    p.on('error', reject)
+    p.on('close', code => {
+      if (code !== 0) return reject(new Error(err.trim() || `curl exit ${code}`))
+      try { resolve(JSON.parse(out)) } catch (e) { reject(e) }
+    })
+    p.stdin.write(data)
+    p.stdin.end()
+  })
+}
+
+function _classifyPrompt(text) {
+  return `Ты — классификатор сообщений для личного планировщика «Flow». Определи категорию сообщения пользователя (на русском языке) и извлеки данные. Отвечай СТРОГО одним JSON-объектом, без markdown и пояснений.
+
+Категории и формат ответа:
+• task — дело/действие, которое нужно сделать:
+  {"type":"task","text":"переформулированный текст задачи кратко","tag":"Учёба|Работа|Здоровье|Финансы|Личное|Проект","priority":"low|medium|high"}
+• budget — трата или поступление денег (в сообщении есть конкретная сумма):
+  {"type":"budget","amount":число,"isIncome":true|false,"category":"Еда|Транспорт|Развлечения|Здоровье|Одежда|Доходы|Связь|Жильё|Кредиты|Образование|Прочее","note":"краткое описание операции"}
+• calendar — запланированное событие/встреча/визит/звонок на конкретную дату или время:
+  {"type":"calendar","title":"короткое название события без даты и времени"}
+• diary — личная запись о прожитом дне, впечатления, эмоции, рефлексия о себе:
+  {"type":"diary"}
+• note — идея, мысль, что-то на заметку для памяти (не дело и не дневник):
+  {"type":"note","title":"короткий заголовок","tag":"Идея|Работа|Учёба|Личное"}
+
+Правила выбора при неоднозначности:
+- Названа конкретная сумма денег ("150 рублей", "потратил 500", "получил зарплату") → budget.
+- Упомянута встреча/визит/созвон/мероприятие с датой или временем → calendar.
+- Рассказ о прошедшем/проживаемом дне, своих действиях или чувствах в прошедшем времени → diary.
+- Короткая мысль/идея «на подумать» → note.
+- Во всех остальных случаях, если это что-то, что нужно сделать → task.
+
+Сообщение пользователя:
+"${text}"
+
+Ответ — только JSON одной строкой, без пояснений и markdown.`
+}
+
+async function _classifyLLM(text) {
+  const apiKey = tgLoad().groqApiKey
+  if (!apiKey) return null
+  try {
+    const res = await _groqRequest(apiKey, {
+      model: _GROQ_MODEL,
+      messages: [{ role: 'user', content: _classifyPrompt(text) }],
+      temperature: 0,
+      max_tokens: 250,
+      response_format: { type: 'json_object' },
+    })
+    const content = res?.choices?.[0]?.message?.content
+    if (!content) return null
+    const parsed = JSON.parse(content)
+    if (!_CLASSIFY_TYPES.includes(parsed.type)) return null
+    return parsed
+  } catch (e) {
+    console.log('[llm:classify]', e.message)
+    return null
+  }
+}
+
+// ── Основная функция: сначала LLM, при неудаче — классификация по правилам ───
+
+async function _smartParse(text) {
   const t     = text.trim()
   const lower = t.toLowerCase()
   const today = _todayKey()
   const now   = new Date()
+  const llm   = await _classifyLLM(t)
 
+  if (llm?.type === 'calendar') {
+    const date  = _parseDate(t) || today
+    const time  = _parseTime(t) || ''
+    const title = (llm.title || _calTitle(t)).trim() || t
+    return {
+      type: 'calendar',
+      data: { id:`tg_${Date.now()}`, title, date, time, endTime:'', color:'#5b8dee', allDay:!time, desc:'', location:'', repeat:'none', repeatEnd:'' },
+      reply: `📅 <b>Событие добавлено</b>\n«${title}»\n📆 ${date}${time?' в '+time:''}`,
+    }
+  }
+  if (llm?.type === 'budget') {
+    const numMatch = t.match(/\d[\d\s,.]*/)
+    const amount   = typeof llm.amount === 'number' && llm.amount > 0
+      ? llm.amount
+      : (numMatch ? parseFloat(numMatch[0].replace(/\s/g,'').replace(',','.')) : 0)
+    const isIncome = !!llm.isIncome
+    const category = llm.category || _budgetCategory(lower)
+    const note     = llm.note || t
+    return {
+      type: 'budget',
+      data: { id:`tg_${Date.now()}`, type:isIncome?'income':'expense', amount, category, note, date:today, month:today.slice(0,7), created:now.toISOString() },
+      reply: `💰 <b>${isIncome?'Доход':'Расход'} ${amount.toLocaleString('ru')} ₽</b>\nКатегория: ${category}${note&&note!==t?'\nЗаметка: '+note:''}`,
+    }
+  }
+  if (llm?.type === 'diary') {
+    return {
+      type: 'diary',
+      data: { id:`tg_${Date.now()}`, date:today, body:t, mood:null, created:now.toISOString(), updated:now.toISOString() },
+      reply: `📖 <b>Запись в дневник</b>\n«${t.slice(0,100)}${t.length>100?'…':''}»`,
+    }
+  }
+  if (llm?.type === 'note') {
+    const title = (llm.title || t.split('\n')[0]).slice(0, 60) || 'Без заголовка'
+    const tag   = llm.tag || 'Личное'
+    return {
+      type: 'note',
+      data: { id:`tg_${Date.now()}`, title, body:t, color:'#1e2433', tag, pinned:false, created:now.toISOString(), updated:now.toISOString() },
+      reply: `📝 <b>Заметка сохранена</b>\n«${title}»`,
+    }
+  }
+  if (llm?.type === 'task') {
+    const cleanText = llm.text || t
+    const tag       = llm.tag || _taskTag(lower)
+    const priority  = llm.priority || (/срочно|важно|критично|asap|горит|немедленно/.test(lower) ? 'high' : 'medium')
+    const taskDate  = _parseDate(t) || today
+    return {
+      type: 'task',
+      data: { id:`tg_${Date.now()}`, text:cleanText, tag, priority, date:taskDate, done:false, created:now.toISOString(), subtasks:[] },
+      reply: `${_tagEmoji(tag)} <b>Задача [${tag}]</b> добавлена:\n«${cleanText}»`,
+    }
+  }
+
+  // LLM недоступен или вернул некорректный результат — классификация по правилам
+  return _smartParseRules(t, lower, today, now)
+}
+
+// ── Классификация по правилам (фолбэк, если LLM недоступен) ──────────────────
+
+function _smartParseRules(t, lower, today, now) {
   // ── 1. Календарь ──────────────────────────────────────────────────────────
   if (_isCalendar(t, lower)) {
     const date  = _parseDate(t) || today
@@ -1579,7 +1727,7 @@ async function fmtSummary(prefix = '') {
 // ── Умный ввод: парсинг + запись в store ────────────────────────────────────
 
 async function _handleSmartInput(token, chatId, text) {
-  const parsed = _smartParse(text)
+  const parsed = await _smartParse(text)
   let ok = false
   try {
     if (parsed.type === 'task') {
@@ -1632,11 +1780,14 @@ async function tgHandleCmd(token, chatId, text) {
         '⏱ /focus   — статистика фокуса\n' +
         '💰 /budget  — бюджет месяца\n' +
         '📊 /summary — сводка дня\n\n' +
-        '✨ <b>Умный ввод</b> — просто напиши текстом:\n' +
+        '✨ <b>Умный ввод</b> — просто напиши текстом своими словами,\n' +
+        'бот сам поймёт, куда это записать:\n' +
         '• <code>изучить React</code> → задача [Учёба]\n' +
         '• <code>кофе 150₽</code> → расход в бюджет\n' +
         '• <code>получил 5000₽</code> → доход в бюджет\n' +
-        '• <code>идея: название</code> → заметка\n' +
+        '• <code>встреча с врачом завтра в 15:00</code> → событие\n' +
+        '• <code>сегодня погулял в парке, было классно</code> → дневник\n' +
+        '• <code>идея для подарка маме</code> → заметка\n' +
         '• <code>купить молоко</code> → задача [Личное]'
       )
     } else if (cmd === '/tasks') {
@@ -1812,11 +1963,21 @@ async function syncToCloud() {
     if (Array.isArray(items) && items.length) {
       console.log(`[cloud:sync] pulling ${items.length} pending items`)
       for (const item of items) {
-        const storeKey = item.type === 'task' ? 'tasks' : item.type === 'note' ? 'notes' : 'budget_txns'
+        const keyMap = { task: 'tasks', note: 'notes', budget: 'budget_txns', calendar: 'calendar_events', diary: 'diary_entries' }
+        const storeKey = keyMap[item.type]
+        if (!storeKey) continue
         const existing = await readStore(storeKey) || []
-        if (!existing.find(e => e.id === item.data.id)) {
-          existing.push(item.data)
+        if (item.type === 'diary') {
+          // дневник: мёрджим по дате
+          const ex = existing.find(e => e.date === item.data.date)
+          if (ex) { ex.body += '\n\n' + item.data.body; ex.updated = item.data.updated }
+          else existing.push(item.data)
           await writeStore(storeKey, existing)
+        } else {
+          if (!existing.find(e => e.id === item.data.id)) {
+            existing.push(item.data)
+            await writeStore(storeKey, existing)
+          }
         }
       }
     }
